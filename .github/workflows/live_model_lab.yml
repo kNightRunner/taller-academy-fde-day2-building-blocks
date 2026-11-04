@@ -1,0 +1,52 @@
+# All sample data are synthetic.
+name: Day 2 measured lab evidence
+on:
+  push:
+    paths:
+      - '.github/workflows/live_model_lab.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: day2-main-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in {1..45}; do
+            if curl -fsS http://localhost:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:11434/api/tags
+      - name: Download model
+        run: ollama pull qwen2.5:3b
+      - name: Run all Day 2 experiments
+        run: python -u run_experiments.py --model qwen2.5:3b
+      - name: Complete written submission
+        run: python -u finalize_submission.py
+      - name: Commit experimental evidence only on staging branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add SUBMISSION.md
+          git add -f results/experiments.json results/EVIDENCE.md
+          if git diff --cached --quiet; then
+            echo 'No new experiments to commit'
+          else
+            git commit -m 'docs(day2): record actual tool, memory and critic runs'
+            git push origin HEAD:main
+          fi
